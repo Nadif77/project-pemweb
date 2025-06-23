@@ -179,12 +179,21 @@ function setupNavigation() {
     );
     // New enrollment item for admin only
     if (currentUser.role === "admin") {
-      navItems.push({
-        id: "enrollments",
-        icon: "fas fa-user-plus",
-        text: "Pendaftaran Siswa Baru",
-        onclick: "loadEnrollmentApplications()",
-      });
+      navItems.push(
+        {
+          id: "enrollments",
+          icon: "fas fa-user-plus",
+          text: "Pendaftaran Siswa Baru",
+          onclick: "loadEnrollmentApplications()",
+        },
+        {
+          // New: Teacher management for admin
+          id: "teachers",
+          icon: "fas fa-chalkboard-teacher",
+          text: "Data Guru",
+          onclick: "loadTeacherManagement()",
+        }
+      );
     }
   }
 
@@ -256,13 +265,29 @@ async function loadDashboardHome() {
                     <p class="mb-0">Total Materi</p>
                 </div>
             </div>
-            <div class="col-md-4">
+            <div class="col-4">
                 <div class="stat-card">
                     <h3>${stats.todayAttendance}</h3>
                     <p class="mb-0">Presensi Hari Ini</p>
                 </div>
             </div>
         `;
+    if (currentUser.role === "admin") {
+      content += `
+                <div class="col-md-4">
+                    <div class="stat-card">
+                        <h3>${stats.pendingEnrollments}</h3>
+                        <p class="mb-0">Pendaftaran Pending</p>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="stat-card">
+                        <h3>${stats.totalTeachers}</h3>
+                        <p class="mb-0">Total Guru</p>
+                    </div>
+                </div>
+            `;
+    }
   }
 
   content += `
@@ -302,31 +327,46 @@ async function checkTodayAttendance() {
 
 async function loadStatistics() {
   try {
-    const [studentsRes, materialsRes, attendanceRes, enrollmentsRes] =
-      await Promise.all([
-        fetch(`${API_BASE}/students`, {
-          headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
-        }),
-        fetch(`${API_BASE}/materials`, {
-          headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
-        }),
-        fetch(`${API_BASE}/attendance`, {
-          headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
-        }),
-        // Fetch enrollments only if admin
-        currentUser.role === "admin"
-          ? fetch(`${API_BASE}/enrollments`, {
-              headers: {
-                Authorization: `Bearer ${localStorage.getItem("token")}`,
-              },
-            })
-          : Promise.resolve({ ok: true, json: () => Promise.resolve([]) }),
-      ]);
+    const [
+      studentsRes,
+      materialsRes,
+      attendanceRes,
+      enrollmentsRes,
+      teachersRes,
+    ] = await Promise.all([
+      fetch(`${API_BASE}/students`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+      }),
+      fetch(`${API_BASE}/materials`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+      }),
+      fetch(`${API_BASE}/attendance`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+      }),
+      // Fetch enrollments only if admin
+      currentUser.role === "admin"
+        ? fetch(`${API_BASE}/enrollments`, {
+            headers: {
+              Authorization: `Bearer ${localStorage.getItem("token")}`,
+            },
+          })
+        : Promise.resolve({ ok: true, json: () => Promise.resolve([]) }),
+      // Fetch teachers only if admin
+      currentUser.role === "admin"
+        ? fetch(`${API_BASE}/teachers`, {
+            // UPDATED ENDPOINT
+            headers: {
+              Authorization: `Bearer ${localStorage.getItem("token")}`,
+            },
+          })
+        : Promise.resolve({ ok: true, json: () => Promise.resolve([]) }),
+    ]);
 
     const students = await studentsRes.json();
     const materials = await materialsRes.json();
     const attendance = await attendanceRes.json();
     const enrollments = await enrollmentsRes.json();
+    const teachers = await teachersRes.json(); // New: Fetch teachers
 
     const today = new Date().toISOString().split("T")[0];
     const todayAttendance = attendance.filter((a) => a.date === today).length;
@@ -336,7 +376,8 @@ async function loadStatistics() {
       totalMaterials: materials.length,
       todayAttendance,
       pendingEnrollments: enrollments.filter((e) => e.status === "pending")
-        .length, // New stat
+        .length,
+      totalTeachers: teachers.length, // New: Total teachers count
     };
   } catch (error) {
     console.error("Error loading dashboard statistics:", error);
@@ -345,6 +386,7 @@ async function loadStatistics() {
       totalMaterials: 0,
       todayAttendance: 0,
       pendingEnrollments: 0,
+      totalTeachers: 0,
     };
   }
 }
@@ -1055,6 +1097,17 @@ async function fetchEnrollmentList() {
     });
     const enrollments = await response.json();
 
+    if (!response.ok) {
+      // Handle API errors
+      showCustomAlert(
+        enrollments.error || "Failed to fetch enrollment data.",
+        "danger"
+      );
+      enrollmentListContainer.innerHTML =
+        '<div class="alert alert-danger">Gagal memuat data pendaftaran.</div>';
+      return;
+    }
+
     if (enrollments.length === 0) {
       enrollmentListContainer.innerHTML =
         '<p class="text-muted">Belum ada aplikasi pendaftaran baru.</p>';
@@ -1333,6 +1386,264 @@ async function approveAndCreateStudent(enrollmentId) {
           "Terjadi kesalahan saat menyetujui pendaftaran.",
           "danger"
         );
+      }
+    }
+  );
+}
+
+// --- New Teacher Management Functions for Dashboard ---
+
+async function loadTeacherManagement() {
+  setActiveNav("teachers");
+
+  let content = `
+        <h2><i class="fas fa-chalkboard-teacher mr-2"></i>Manajemen Data Guru</h2>
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Daftar Guru</h5>
+                <button class="btn btn-primary btn-sm" onclick="showAddTeacherModal()">
+                    <i class="fas fa-plus mr-1"></i> Tambah Guru Baru
+                </button>
+            </div>
+            <div class="card-body" id="teacherListContainer">
+                <!-- Teacher list will be loaded here -->
+            </div>
+        </div>
+
+        <!-- Modal for Add/Edit Teacher -->
+        <div class="modal fade" id="teacherModal" tabindex="-1" role="dialog" aria-labelledby="teacherModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered" role="document">
+                <div class="modal-content">
+                    <div class="modal-header bg-primary text-white">
+                        <h5 class="modal-title" id="teacherModalLabel">Tambah Guru Baru</h5>
+                        <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <form id="teacherForm">
+                            <input type="hidden" id="teacherId">
+                            <div class="form-group">
+                                <label for="teacherName">Nama Lengkap</label>
+                                <input type="text" class="form-control" id="teacherName" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="teacherUsername">Username</label>
+                                <input type="text" class="form-control" id="teacherUsername" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="teacherPassword">Password ${'<small class="text-muted">(Kosongkan jika tidak ingin mengubah)</small>'}</label>
+                                <input type="password" class="form-control" id="teacherPassword">
+                            </div>
+                            <div class="form-group">
+                                <label for="teacherConfirmPassword">Konfirmasi Password</label>
+                                <input type="password" class="form-control" id="teacherConfirmPassword">
+                            </div>
+                            <button type="submit" class="btn btn-primary btn-block" id="saveTeacherBtn">Simpan</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+  document.getElementById("content").innerHTML = content;
+  await fetchTeacherList();
+}
+
+async function fetchTeacherList() {
+  const teacherListContainer = document.getElementById("teacherListContainer");
+  teacherListContainer.innerHTML =
+    '<p class="text-muted">Memuat data guru...</p>';
+
+  try {
+    const response = await fetch(`${API_BASE}/teachers`, {
+      // UPDATED ENDPOINT
+      headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+    });
+    const teachers = await response.json();
+
+    if (!response.ok) {
+      showCustomAlert(teachers.error || "Gagal memuat data guru.", "danger");
+      teacherListContainer.innerHTML =
+        '<div class="alert alert-danger">Gagal memuat data guru.</div>';
+      return;
+    }
+
+    if (teachers.length === 0) {
+      teacherListContainer.innerHTML =
+        '<p class="text-muted">Belum ada data guru.</p>';
+      return;
+    }
+
+    let tableHtml = `
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Nama Lengkap</th>
+                            <th>Username</th>
+                            <th>Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+        `;
+
+    teachers.forEach((teacher) => {
+      tableHtml += `
+                <tr>
+                    <td>${teacher.name}</td>
+                    <td>${teacher.username}</td>
+                    <td>
+                        <button class="btn btn-sm btn-warning" onclick="showEditTeacherModal(${teacher.id}, '${teacher.name}', '${teacher.username}')">
+                            <i class="fas fa-edit"></i> Edit
+                        </button>
+                        <button class="btn btn-sm btn-danger ml-1" onclick="deleteTeacherAccount(${teacher.id}, '${teacher.name}')">
+                            <i class="fas fa-trash"></i> Hapus
+                        </button>
+                    </td>
+                </tr>
+            `;
+    });
+
+    tableHtml += `</tbody></table></div>`;
+    teacherListContainer.innerHTML = tableHtml;
+  } catch (error) {
+    console.error("Error fetching teachers:", error);
+    teacherListContainer.innerHTML =
+      '<div class="alert alert-danger">Gagal memuat data guru.</div>';
+  }
+}
+
+function showAddTeacherModal() {
+  document.getElementById("teacherModalLabel").textContent = "Tambah Guru Baru";
+  document.getElementById("teacherId").value = ""; // Clear ID for new
+  document.getElementById("teacherName").value = "";
+  document.getElementById("teacherUsername").value = "";
+  document.getElementById("teacherPassword").value = "";
+  document.getElementById("teacherConfirmPassword").value = "";
+  document.getElementById("teacherPassword").placeholder =
+    "Setel password awal";
+  document
+    .getElementById("teacherPassword")
+    .closest(".form-group")
+    .querySelector("label small").textContent = ""; // Remove "Kosongkan jika tidak ingin mengubah"
+  document
+    .getElementById("teacherPassword")
+    .setAttribute("required", "required"); // Password required for add
+
+  // Remove previous event listener and add new one for adding
+  $("#teacherForm").off("submit").on("submit", addOrUpdateTeacher);
+
+  $("#teacherModal").modal("show");
+}
+
+function showEditTeacherModal(id, name, username) {
+  document.getElementById("teacherModalLabel").textContent = "Edit Data Guru";
+  document.getElementById("teacherId").value = id;
+  document.getElementById("teacherName").value = name;
+  document.getElementById("teacherUsername").value = username;
+  document.getElementById("teacherPassword").value = ""; // Clear password field for security
+  document.getElementById("teacherConfirmPassword").value = "";
+  document.getElementById("teacherPassword").placeholder =
+    "Kosongkan jika tidak ingin mengubah password";
+  document
+    .getElementById("teacherPassword")
+    .closest(".form-group")
+    .querySelector("label small").textContent =
+    "(Kosongkan jika tidak ingin mengubah)"; // Add "Kosongkan jika tidak ingin mengubah"
+  document.getElementById("teacherPassword").removeAttribute("required"); // Password not required for edit
+
+  // Remove previous event listener and add new one for updating
+  $("#teacherForm").off("submit").on("submit", addOrUpdateTeacher);
+
+  $("#teacherModal").modal("show");
+}
+
+async function addOrUpdateTeacher(event) {
+  event.preventDefault();
+
+  const id = document.getElementById("teacherId").value;
+  const name = document.getElementById("teacherName").value;
+  const username = document.getElementById("teacherUsername").value;
+  const password = document.getElementById("teacherPassword").value;
+  const confirmPassword = document.getElementById(
+    "teacherConfirmPassword"
+  ).value;
+
+  if (password !== confirmPassword) {
+    showCustomAlert("Password dan Konfirmasi Password tidak cocok.", "danger");
+    return;
+  }
+
+  const teacherData = { name, username };
+  if (password) {
+    // Only include password if it's provided (for new or updated)
+    teacherData.password = password;
+  }
+
+  const method = id ? "PUT" : "POST";
+  const url = id ? `${API_BASE}/teachers/${id}` : `${API_BASE}/teachers`; // UPDATED ENDPOINT
+
+  try {
+    const response = await fetch(url, {
+      method: method,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${localStorage.getItem("token")}`,
+      },
+      body: JSON.stringify(teacherData),
+    });
+
+    const result = await response.json();
+
+    if (response.ok) {
+      showCustomAlert(result.message, "success");
+      $("#teacherModal").modal("hide"); // Close modal
+      await fetchTeacherList(); // Refresh the teacher list
+    } else {
+      showCustomAlert(
+        result.error || `Gagal ${id ? "memperbarui" : "menambah"} guru.`,
+        "danger"
+      );
+    }
+  } catch (error) {
+    console.error(`Error ${id ? "updating" : "adding"} teacher:`, error);
+    showCustomAlert(
+      `Terjadi kesalahan saat ${id ? "memperbarui" : "menambah"} guru.`,
+      "danger"
+    );
+  }
+}
+
+async function deleteTeacherAccount(id, name) {
+  showCustomAlert(
+    `Apakah Anda yakin ingin menghapus akun guru "${name}"?`,
+    "danger",
+    async () => {
+      try {
+        const response = await fetch(`${API_BASE}/teachers/${id}`, {
+          // UPDATED ENDPOINT
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("token")}`,
+          },
+        });
+
+        const result = await response.json();
+
+        if (response.ok) {
+          showCustomAlert(result.message, "success");
+          await fetchTeacherList(); // Refresh the teacher list
+        } else {
+          showCustomAlert(
+            result.error || `Gagal menghapus guru "${name}".`,
+            "danger"
+          );
+        }
+      } catch (error) {
+        console.error("Error deleting teacher:", error);
+        showCustomAlert("Terjadi kesalahan saat menghapus guru.", "danger");
       }
     }
   );

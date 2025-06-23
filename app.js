@@ -7,6 +7,7 @@ const materialRoutes = require("./routes/materialRoutes");
 const attendanceRoutes = require("./routes/attendanceRoutes");
 const userRoutes = require("./routes/userRoutes");
 const enrollmentsRoutes = require("./routes/enrollmentRoutes");
+const teacherRoutes = require("./routes/teacherRoutes"); // Import teacher routes
 const { JWT_SECRET } = require("./config/config"); // Import JWT_SECRET from config
 
 const app = express();
@@ -30,6 +31,7 @@ app.use("/api/materials", materialRoutes);
 app.use("/api/attendance", attendanceRoutes);
 app.use("/api/students", userRoutes); // Re-using userRoutes for student data
 app.use("/api/enrollments", enrollmentsRoutes);
+app.use("/api/teachers", teacherRoutes);
 
 // Error handling middleware (will be defined later)
 app.use((err, req, res, next) => {

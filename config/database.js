@@ -65,6 +65,26 @@ function initializeDb() {
         if (err) console.error("Error creating attendance table:", err.message);
       }
     );
+
+    // New Enrollments table for student registrations
+    db.run(
+      `CREATE TABLE IF NOT EXISTS enrollments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            full_name TEXT NOT NULL,
+            dob TEXT NOT NULL, -- Date of Birth (e.g., "Yogyakarta, 12 Januari 2017")
+            address TEXT NOT NULL,
+            parent_name TEXT NOT NULL,
+            parent_phone TEXT NOT NULL,
+            target_class TEXT NOT NULL,
+            status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'approved', 'rejected')),
+            notes TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`,
+      (err) => {
+        if (err)
+          console.error("Error creating enrollments table:", err.message);
+      }
+    );
   });
 }
 

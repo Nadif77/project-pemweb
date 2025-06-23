@@ -6,6 +6,7 @@ const authRoutes = require("./routes/authRoutes");
 const materialRoutes = require("./routes/materialRoutes");
 const attendanceRoutes = require("./routes/attendanceRoutes");
 const userRoutes = require("./routes/userRoutes");
+const enrollmentsRoutes = require("./routes/enrollmentRoutes");
 const { JWT_SECRET } = require("./config/config"); // Import JWT_SECRET from config
 
 const app = express();
@@ -24,13 +25,11 @@ if (!require("fs").existsSync(uploadsDir)) {
 }
 
 // Routes
-// app.get("/", (req, res) => {
-//   res.sendFile(path.join(__dirname, "..", "index.html")); // Serve the main HTML file
-// });
 app.use("/api", authRoutes);
 app.use("/api/materials", materialRoutes);
 app.use("/api/attendance", attendanceRoutes);
 app.use("/api/students", userRoutes); // Re-using userRoutes for student data
+app.use("/api/enrollments", enrollmentsRoutes);
 
 // Error handling middleware (will be defined later)
 app.use((err, req, res, next) => {
